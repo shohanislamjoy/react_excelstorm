@@ -1,9 +1,42 @@
 import * as XLSX from 'xlsx';
 
 /**
- * Parse Excel file and transform data according to specification
- * @param {File} file - Excel file to parse
- * @returns {Promise<{headers: Array, data: Array, error: string | null}>}
+ * ============================================================================
+ * parseExcelFile - Main Excel parsing and data transformation function
+ * ============================================================================
+ * 
+ * PURPOSE:
+ * Reads an Excel/CSV file uploaded by the user and transforms it into a 
+ * standardized format that the data table can consume.
+ *
+ * HOW IT WORKS:
+ * 1. Uses FileReader API to read the file as a binary array buffer
+ * 2. Passes the buffer to XLSX library for parsing
+ * 3. Reads the first sheet from the workbook
+ * 4. Converts sheet data to JSON format
+ * 5. Maps each row to a standardized object with SAP-compliant fields
+ * 6. Returns headers and transformed data for display
+ *
+ * EXPECTED INPUT COLUMNS (from Excel):
+ * - Date: Transaction date (will use this column for CHALL_DATE)
+ * - Challan Number: Reference number (max 11 chars)
+ * - Bank Code: Bank identifier
+ * - Branch Code: Branch identifier
+ * - Account Code: Account/GL account code
+ * - Amount: Transaction amount
+ * - Notes: Additional remarks (max 255 chars)
+ *
+ * OUTPUT FORMAT:
+ * Returns Promise with object containing:
+ * {
+ *   headers: Array of field names to display in table
+ *   data: Array of transformed row objects with IDs
+ *   error: Error message if parsing failed, null if successful
+ *   rowCount: Total number of rows parsed
+ * }
+ *
+ * @param {File} file - Excel file to parse (XLSX, XLS, or CSV format)
+ * @returns {Promise<{headers: Array, data: Array, error: string | null, rowCount: number}>}
  */
 export const parseExcelFile = async (file) => {
   try {
@@ -21,14 +54,15 @@ export const parseExcelFile = async (file) => {
 
           // Transform data according to specification
           const transformedData = rawData.map((item, index) => {
-            const sapModelDate = formatDateForSAP(item['Challan Date'] || new Date());
-            
+            // Use "Date" column from Excel, fallback to current date if not available
+            const sapModelDate = item['Date'] || new Date();
+
             return {
               id: Date.now() + index, // Unique ID for row management
               CHALLAN_NO: (item['Challan Number'] || '').toString().substring(0, 11),
               A_BANCD: item['Bank Code'] || '',
               A_BANKL: item['Branch Code'] || '',
-              CHALL_DATE: sapModelDate,
+              CHALL_DATE: item['Date'],
               ACCOUNT_CODE: item['Account Code'] || '',
               CHAN_AMT: item['Amount'] || '0',
               NOTES: (item['Notes'] || '').toString().substring(0, 255),
@@ -74,26 +108,36 @@ export const parseExcelFile = async (file) => {
 };
 
 /**
- * Format date for SAP model (YYYYMMDD format)
- * @param {string|Date} date - Date to format
- * @returns {string} Formatted date
- */
-const formatDateForSAP = (date) => {
-  try {
-    const d = new Date(date);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}${month}${day}`;
-  } catch {
-    return new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  }
-};
-
-/**
- * Export parsed data as CSV
- * @param {Array} data - Data to export
- * @param {string} filename - Filename for export
+ * ============================================================================
+ * exportDataAsCSV - Downloads parsed data as a CSV file
+ * ============================================================================
+ *
+ * PURPOSE:
+ * Allows users to export their parsed and modified data as a CSV file for use
+ * in Excel, Google Sheets, or other applications.
+ *
+ * HOW IT WORKS:
+ * 1. Validates that data exists before proceeding
+ * 2. Extracts all column headers (excluding internal fields starting with _)
+ * 3. Converts each row to CSV format (comma-separated values)
+ * 4. Properly escapes values containing commas or quotes:
+ *    - Wraps them in double quotes
+ *    - Escapes internal quotes by doubling them
+ * 5. Creates a Blob (binary data) from the CSV content
+ * 6. Generates a download link and triggers file download
+ * 7. Cleans up the temporary download URL
+ *
+ * CSV FORMATTING RULES:
+ * - Values with commas: wrapped in quotes → "value, with comma"
+ * - Values with quotes: quotes doubled → "say ""hello"""
+ * - File defaults to: excelstorm_export.csv (unless filename provided)
+ *
+ * EXAMPLE OUTPUT:
+ * CHALLAN_NO,A_BANCD,A_BANKL,CHALL_DATE,ACCOUNT_CODE,CHAN_AMT,NOTES
+ * 123456,BNK123,BRA456,20260224,ACC001,5000,Standard challan
+ *
+ * @param {Array} data - Array of row objects to export
+ * @param {string} filename - Output filename (default: 'excelstorm_export.csv')
  */
 export const exportDataAsCSV = (data, filename = 'excelstorm_export.csv') => {
   if (!data || data.length === 0) {
@@ -126,9 +170,36 @@ export const exportDataAsCSV = (data, filename = 'excelstorm_export.csv') => {
 };
 
 /**
- * Export parsed data as Excel file
- * @param {Array} data - Data to export
- * @param {string} filename - Filename for export
+ * ============================================================================
+ * exportDataAsExcel - Downloads parsed data as a formatted Excel file
+ * ============================================================================
+ *
+ * PURPOSE:
+ * Exports parsed data as an Excel XLSX file with professional formatting,
+ * including bold headers, colored backgrounds, and auto-sized columns.
+ *
+ * HOW IT WORKS:
+ * 1. Validates that data exists before proceeding
+ * 2. Removes internal fields (starting with _ or named 'id') from export
+ * 3. Creates a new workbook and worksheet using XLSX library
+ * 4. Converts data array to an Excel sheet
+ * 5. Auto-calculates and sets column widths based on content:
+ *    - Minimum width = column header length + 2
+ *    - Adjusted for longest value in that column + 2
+ * 6. Formats the header row with:
+ *    - Bold white text (FFFFFF)
+ *    - Blue background (3b82f6)
+ *    - Centered alignment (horizontal & vertical)
+ * 7. Saves the workbook to user's downloads folder
+ * 8. Default filename: excelstorm_export.xlsx (can be customized)
+ *
+ * FORMATTING APPLIED:
+ * Header Row: White (bold) on Blue background with centered text
+ * Column Widths: Auto-sized to fit content
+ * Data Rows: Standard Excel formatting
+ *
+ * @param {Array} data - Array of row objects to export
+ * @param {string} filename - Output filename (default: 'excelstorm_export.xlsx')
  */
 export const exportDataAsExcel = (data, filename = 'excelstorm_export.xlsx') => {
   if (!data || data.length === 0) {
@@ -136,12 +207,18 @@ export const exportDataAsExcel = (data, filename = 'excelstorm_export.xlsx') => 
     return;
   }
 
-  // Prepare data for Excel, excluding internal fields
+  // Prepare data for Excel, excluding internal fields and reformatting dates
   const exportData = data.map(row => {
     const newRow = {};
     Object.keys(row).forEach(key => {
       if (!key.startsWith('_') && key !== 'id') {
-        newRow[key] = row[key];
+        let value = row[key];
+        // Check if the value is a date in dd/mm/yyyy format
+        if (typeof value === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+          const [day, month, year] = value.split('/');
+          value = `${year}-${month}-${day}`; // Convert to YYYY-MM-DD format
+        }
+        newRow[key] = value;
       }
     });
     return newRow;
@@ -177,8 +254,44 @@ export const exportDataAsExcel = (data, filename = 'excelstorm_export.xlsx') => 
 };
 
 /**
- * Create a new empty row with default values
- * @returns {Object} New row object
+ * ============================================================================
+ * createNewRow - Generates a blank row with default SAP field structure
+ * ============================================================================
+ *
+ * PURPOSE:
+ * Creates a new empty row object with all required SAP fields initialized
+ * with default values. Used when user clicks "Add Row" button to insert
+ * a new record into the data table.
+ *
+ * HOW IT WORKS:
+ * 1. Generates a unique ID based on current timestamp
+ * 2. Initializes all SAP-compliant fields with empty/default values:
+ *    - CHALLAN_NO: Challan/reference number (empty)
+ *    - A_BANCD: Bank code (empty)
+ *    - A_BANKL: Branch code (empty)
+ *    - CHALL_DATE: Settlement date (today's date in YYYYMMDD format)
+ *    - ACCOUNT_CODE: GL/Account code (empty)
+ *    - CHAN_AMT: Amount (defaults to '0')
+ *    - NOTES: Additional notes (empty)
+ *
+ * DEFAULT VALUES:
+ * - All text fields start empty except CHALL_DATE and CHAN_AMT
+ * - CHALL_DATE is set to today's date in YYYYMMDD format
+ * - CHAN_AMT defaults to '0' (string, not number)
+ *
+ * RETURN EXAMPLE:
+ * {
+ *   id: 1708800000000,
+ *   CHALLAN_NO: '',
+ *   A_BANCD: '',
+ *   A_BANKL: '',
+ *   CHALL_DATE: '20260224',
+ *   ACCOUNT_CODE: '',
+ *   CHAN_AMT: '0',
+ *   NOTES: '',
+ * }
+ *
+ * @returns {Object} New row object with all SAP fields and empty values
  */
 export const createNewRow = () => {
   return {
@@ -186,7 +299,7 @@ export const createNewRow = () => {
     CHALLAN_NO: '',
     A_BANCD: '',
     A_BANKL: '',
-    CHALL_DATE: formatDateForSAP(new Date()),
+    CHALL_DATE: new Date().toLocaleDateString('en-GB'),
     ACCOUNT_CODE: '',
     CHAN_AMT: '0',
     NOTES: '',
