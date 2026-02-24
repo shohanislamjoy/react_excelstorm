@@ -221,9 +221,8 @@ This project is licensed under the MIT License.
 
 ## 👨‍💻 Author
 
-Created as a React-based practice project for efficient data visualization and manipulation.
+**📧 Email**: [shohanislamjoy@gmail.com](mailto:shohanislamjoy@gmail.com)  
+**🌐 GitHub**: [@shohanislamjoy](https://github.com/shohanislamjoy)
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: 2025-02-23
